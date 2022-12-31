@@ -1,0 +1,125 @@
+---
+title: "Lab3"
+author: "Evgenii Shragin"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+### Задание 2
+
+Объедините таблицы в одну, уберите столбец с территорией торговли, т.к. там только Евросоюз, оставим только строки с экспортом и импортом, вынесите данные по экспорту и импорту в отдельные переменные. Постройте линейный график изменения экспорта по годам обозначив разные группы экспортируемых товаров разным цветом. Подпишите значения на графике. Отрегулируйте местоположение подписей так, чтобы рисунок был максимально наглядным. Придумайте новые названия графика и осей.
+
+```{r warning=FALSE}
+# Подключаем пакеты tidyverse
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(purrr)
+```
+
+Отрисовка графика
+
+```{r warning=FALSE}
+export_plot <- function(df) {
+  export_data <- df %>% group_by(sitc06, time) %>% summarise(export = sum(export))
+  group <- export_data$sitc06
+  
+  options(scipen = 999)
+  
+  e_plot <- ggplot(export_data, aes(x = time, y = export, group = group)) + geom_line(aes(color=sitc06)) + geom_point(aes(color=sitc06))
+  e_plot <- e_plot + geom_text(aes(y = export, label = export), nudge_x = -50, nudge_y = -10000, size=1.25) 
+  e_plot <- e_plot + labs(x = "Год", y = "Сумма экспорта, млн. евро", 
+                          title = 'Экспорт групп товаров',
+                          color = "Обозначения")
+  
+  print(e_plot)
+}
+```
+
+Работа с данными
+
+```{r warning=FALSE}
+# загрузка данных
+load('data/trades.RData')
+# объединение
+result_tibble <- reduce(trades, union)
+# убираем столбец с территорией торговли
+result_tibble <- select(result_tibble, -geo)
+# оставляем только строки с импортом и экспортом: для этого подготовим фильтр
+fltr = stringr::str_detect(result_tibble$indic_et, 'Imports in million of ECU/EURO|Exports in million of ECU/EURO')
+# применение фильтра
+result_tibble <- dplyr::filter(result_tibble, fltr)
+# вынос экспорта и импорта в разные переменные
+result_tibble <- result_tibble %>% pivot_wider(names_from = indic_et, values_from = values)
+result_tibble <- rename(result_tibble, import = 'Imports in million of ECU/EURO',
+                                   export = 'Exports in million of ECU/EURO')
+export_plot(result_tibble)
+```
+
+
+### Задание 7
+
+Приведите данные к формату tidydata. Отобразите суммарные значения экспорта и импорта по субъектам федерации, находящимся в Центральном федеральном округе, в виде столбчатой диаграммы [сгруппировав значения по названию субъекта федерации]. Экспорт и импорт обозначьте разными цветами. Сделайте второй график, наложив столбцы экспорта и импорта один на другой и подписав значения разниц между экспортом и импортом.
+
+```{r warning=FALSE}
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+```{r warning=FALSE}
+load('data/ExpImp.RData')
+
+options(scipen = 10)
+
+draw_plots <- function(DF) {
+  DF <- DF[complete.cases(DF),]
+  for (i in 2:length(names(DF))) {
+    DF[[i]] <- gsub("-", 0, DF[[i]])
+    DF[[i]] <- as.numeric(DF[[i]])
+  }
+  
+  flt <- str_detect(DF$Регион, 'федеральный округ')
+  rdf <- mutate(DF, Округ = if_else(flt, Регион, NULL))
+  rdf <- fill(rdf, Округ)
+  flt2 <- !str_detect(rdf$Регион, 'Федерация|федеральный округ')
+  rdf <- filter(rdf, flt2)
+  
+  match_exp <- select_at(rdf, vars(matches("Экспорт")))
+  match_imp <- select_at(rdf, vars(matches("Импорт")))
+  
+  match_exp$Сумма <- rowSums(match_exp, na.rm = TRUE)
+  match_imp$Сумма <- rowSums(match_imp, na.rm = TRUE)
+  
+  rdf$SumExport <- match_exp$Сумма
+  rdf$SumImport <- match_imp$Сумма
+
+  rdf <- filter(rdf, Округ == 'Центральный федеральный округ')
+  rdf <- rdf[,c("Регион", "SumExport", "SumImport")]
+  rdf <- pivot_longer(rdf, !Регион, names_to = "Экспорт/Импорт", values_to = "млн долларов США")
+  
+  result <- rdf %>% group_by(Регион, `Экспорт/Импорт`) 
+  result <- result %>% summarise(Сумма = sum(`млн долларов США`))
+  
+  plot1 <- ggplot(result, mapping = aes(x = Регион, y = Сумма, fill = `Экспорт/Импорт`)) +
+    geom_col(color = 'black', size = 0.2, position = 'dodge') + 
+    ggtitle('Экспорт/Импорт по ЦФО') + ylab('млн долларов США') + coord_flip()
+  
+  print(plot1)
+  
+  plot2 <- ggplot(result, mapping = aes(x = Регион, y = Сумма, fill = `Экспорт/Импорт`)) +
+    geom_col(color = 'black', size = 0.2) + 
+    ggtitle('Экспорт/Импорт по ЦФО') + ylab('млн долларов США') + coord_flip()
+  
+  print(plot2)
+}
+```
+
+```{r warning=FALSE}
+draw_plots(ExpImp)
+```
+
